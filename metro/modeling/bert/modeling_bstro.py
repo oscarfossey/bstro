@@ -17,6 +17,7 @@ Contact: ps-license@tuebingen.mpg.de
 """
 
 from __future__ import absolute_import, division, print_function, unicode_literals
+from weakref import ref
 
 import torch
 from torch import nn
@@ -198,11 +199,12 @@ class BSTRO_BodyHSC_Network(torch.nn.Module):
 
         # concatinate template joints and template vertices, and then duplicate to batch size
         # ref_vertices = torch.cat([template_3d_joints, template_vertices_sub2],dim=1)
-        ref_vertices = torch.cat([template_vertices_sub2],dim=1)
+        ref_vertices = torch.cat([template_vertices_sub2],dim=1)[0,:,:]
         ref_vertices = ref_vertices.expand(batch_size, -1, -1)
 
         # extract image feature maps using a CNN backbone
         image_feat = self.backbone(images)
+
         image_feat_newview = image_feat.view(batch_size,2048,-1)
         image_feat_newview = image_feat_newview.transpose(1,2)
         # and apply a conv layer to learn image token for each 3d joint/vertex position
