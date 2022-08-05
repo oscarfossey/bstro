@@ -48,7 +48,7 @@ def rgb_processing(rgb_img, center, scale, rot, pn, img_res=224):
     rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))/255.0
     return rgb_img
 
-def run_inference(args, BSTRO_model, smpl, mesh_sampler):
+def run_inference(args, BSTRO_model, smpl, mesh_sampler, visualization = None):
     smpl.eval()
 
     if args.distributed:
@@ -80,32 +80,34 @@ def run_inference(args, BSTRO_model, smpl, mesh_sampler):
         # Store image before normalization to use it in visualization
         images = normalize_img(img)
         images = images.cuda(args.device).unsqueeze(0)
-
         # forward-pass
         if BSTRO_model.config.output_attentions:
             _, _, pred_contact, hidden_states, att = BSTRO_model(images, smpl, mesh_sampler)
         else:
             _, _, pred_contact = BSTRO_model(images, smpl, mesh_sampler)
 
-        
-        visual_imgs, pred_contact_meshes = visualize_contact([img],
-                                                            pred_contact.detach(), 
-                                                            smpl)
-        visual_imgs = visual_imgs.transpose(0,1)
-        visual_imgs = visual_imgs.transpose(1,2)
-        visual_imgs = np.asarray(visual_imgs)
+        if visualization is not None:
 
-        if is_main_process()==True:
-            foldername = './demo'
-            if not os.path.exists(foldername):
-                os.makedirs(foldername)
-            temp_fname = foldername + '/input.jpg'
-            cv2.imwrite(temp_fname, np.asarray(visual_imgs[:,:,::-1]*255))
+            visual_imgs, pred_contact_meshes = visualize_contact([img],
+                                                                pred_contact.detach()[0,:,:], 
+                                                                smpl)
+            visual_imgs = visual_imgs.transpose(0,1)
+            visual_imgs = visual_imgs.transpose(1,2)
+            visual_imgs = np.asarray(visual_imgs)
 
-            for _, mesh in enumerate(pred_contact_meshes):
-                temp_fname = foldername + f'/contact_vis.obj'
-                mesh.export(temp_fname)
-    return
+            if is_main_process()==True:
+                foldername = './demo'
+                if not os.path.exists(foldername):
+                    os.makedirs(foldername)
+                temp_fname = foldername + '/input.jpg'
+                cv2.imwrite(temp_fname, np.asarray(visual_imgs[:,:,::-1]*255))
+
+                for _, mesh in enumerate(pred_contact_meshes):
+                    import trimesh
+                    temp_fname = foldername + f'/contact_vis.glb'
+                    #mesh.export(temp_fname,file_type="glb")
+                    trimesh.scene.Scene(mesh).show()
+    return pred_contact
 
 
 def visualize_contact(images,
@@ -119,13 +121,13 @@ def visualize_contact(images,
     import trimesh
     # Do visualization for the first 6 images of the batch
 
-    for i in range(min(batch_size, 50)):
+    for i in range(min(batch_size, len(images))):
         img = images[i].cpu().numpy()
         # Get predict vertices for the particular example
-        contact = pred_contact[i].cpu()
+        contact = pred_contact.cpu()
         hit_id = (contact >= 0.5).nonzero()[:,0]
-
-        pred_mesh = trimesh.Trimesh(vertices=ref_vert.detach().cpu().numpy(), faces=smpl.faces.detach().cpu().numpy(), process=False)
+        
+        pred_mesh = trimesh.Trimesh(vertices=ref_vert.detach().cpu().numpy()[0,:,:], faces=smpl.faces.detach().cpu().numpy(), process=False)
         pred_mesh.visual.vertex_colors = (191, 191, 191, 255)
         pred_mesh.visual.vertex_colors[hit_id, :] = (255, 0, 0, 255)
         pred_contact_meshes.append(pred_mesh)
